@@ -1,58 +1,55 @@
 # ESP32 DALI Tester (TFT UI + Encoder + Bus Monitor)
 
-A compact, hands-on DALI tool built around an **ESP32** with a **2.8" ILI9341 TFT** and a **rotary encoder**. It can **send DALI commands**, **scan devices**, **commission / change short addresses**, **clone key configuration values**, **reset device config**, and **monitor bus traffic**.
+A compact, hands-on DALI tool built around an ESP32 with a 2.2" ILI9341 TFT and a rotary encoder. It can send DALI commands, scan devices, commission / change short addresses, 
+clone key configuration values, reset device config, and monitor bus traffic.
 
-> **Note on provenance:**  
-> The firmware was created using **AI-assisted “vibe coding”** (with human iteration and testing).  
-> The **PCB / hardware wiring & integration were designed and built by hand**.
+> Note on provenance:  
+> The firmware was created using AI-assisted “vibe coding” (with human iteration and testing).  
+> The PCB / hardware wiring & integration were designed and built by hand.
+> Current FW version (1.3.6) only allows for DALI1 and a few DALI2 devices (not all sensors are found).
+> Please understand that the DALI bus may not be isolated from mains voltage! Do not use the internal power supply if there is allready voltage on the bus!
+  If you are using the internal power supply, the DALI bus is not fully isolated! If you use an external supply, the tool is fully isolated.
+  The internal power supply should be able to output 150mA, so it is not capable to supply a whole set of 64 devices, i tested it with more than 10 devices.
 
 ---
 
-## Features
+# Features
 
-- **TFT UI (ILI9341, 320×240)** with header/footer and a scrollable home menu
-- **Rotary encoder navigation**
+- TFT UI (ILI9341, 320×240) with header/footer and a scrollable home menu
+- Rotary encoder navigation
   - Rotate: navigate lists / change values
   - Short click: select / execute
   - Long press (≥ 700 ms): back
-- **DALI Master** (via `qqqlab/DALI-Lighting-Interface` / `qqqDALI`)
+  - Looong press (≥ 8000 ms): easteregg
+- DALI Master (via `qqqlab/DALI-Lighting-Interface` / `qqqDALI`)
   - Send common commands (ON/OFF/MIN/MAX)
   - Query status, levels, device type
-- **Commissioning / addressing**
+- Commissioning / addressing
   - Commission all devices
   - Commission unaddressed devices
   - Change short address (initialize → program → verify → terminate)
-- **Clone configuration**
+- Clone configuration
   - Capture and apply: max/min level, power-on level, system-failure level, fade time, fade rate
-- **Reset config** (treats NO_REPLY as success, useful for some drivers)
-- **Bus Monitor**
+- Reset config (treats NO_REPLY as success, useful for some drivers)
+- Bus Monitor
   - Displays decoded forward frames (address+data) and backward replies
   - Live mode + freeze/scroll mode
 
 ---
 
-## Hardware
+# Hardware
 
-### Core components
+Core components
 - ESP32 (DevKit style)
-- ILI9341 2.8" SPI TFT (Adafruit compatible)
+- ILI9341 2.2" SPI TFT (Adafruit compatible)
 - Rotary encoder with push button
-- DALI interface hardware (tested with **Waveshare Pico-DALI2** and a **Tridonic DALI USB “mouse”** for generating traffic)
-
-### Typical GPIO mapping (default)
-You can change these in the firmware configuration section:
-
-- TFT: `CS=2`, `DC=17`, `RST=4`
-- Encoder: `A=33`, `B=32`, `BTN=34`
-- DALI: `TX=26`, `RX=27`
-- PSU enable: `DALI_PSU_EN=14`
-- Battery Voltage: `BAT_V=35`
+- DALI interface hardware (tested with Waveshare Pico-DALI2 and a Tridonic DALI USB “mouse” for generating traffic)
                            
 ---
 
-## Firmware / Libraries
+# Firmware / Libraries
 
-- **Arduino framework on ESP32**
+- Arduino framework on ESP32
 - Display:
   - `Adafruit_GFX`
   - `Adafruit_ILI9341`
@@ -63,9 +60,9 @@ The DALI timing is driven by a periodic ESP32 hardware timer ISR calling `dali.t
 
 ---
 
-## Building
+# Building
 
-### Option A: PlatformIO (recommended)
+PlatformIO
 1. Install VS Code + PlatformIO
 2. Clone this repository
 3. Open the folder in VS Code
@@ -75,51 +72,16 @@ The DALI timing is driven by a periodic ESP32 hardware timer ISR calling `dali.t
 5. Monitor serial output:
    - `PlatformIO: Monitor` (115200 baud)
 
-### Option B: Arduino IDE
-Possible, but PlatformIO is recommended for dependency management and reproducible builds.
 
 ---
 
-## Usage
-
-Power the system, open the UI, then use:
-
-- **Home → Send CMD**  
-  Quick sanity check: send `Broadcast OFF` or `Broadcast MAX`.
-
-- **Home → Scan Devices**  
-  Finds devices with short addresses by querying status.
-
-- **Home → Address Device**  
-  Commission devices or change a short address.
-
-- **Home → Clone Config**  
-  Capture from one address, then send to another.
-
-- **Home → Bus Monitor**  
-  Watch forward frames + replies. Click to freeze/unfreeze. Rotate to scroll while frozen.
-
----
-
-## Configuration
-
-Common settings you may need to adjust:
-
-- `DALI_TX_INVERT`  
-  Depends on your TX driver polarity (opto/transistor stage).
-- `DALI_RX_INVERT`  
-  Set `true` if decoded data looks inverted.
-- GPIO pin mapping for TFT/encoder/DALI.
-
----
-
-## Project Status
+# Project Status
 
 This is an actively iterated DIY project. Expect occasional breaking changes while improving UI, decoding, or hardware compatibility.
 
 ---
 
-## Contributing
+# Contributing
 
 Issues and PRs are welcome — especially for:
 - Additional command decoding in the bus monitor
@@ -128,15 +90,14 @@ Issues and PRs are welcome — especially for:
 
 ---
 
-## License
+# License
 
 Please check the repository for the license file(s).  
 This project depends on third-party libraries which come with their own licenses (notably the `qqqDALI` library).
 
 ---
 
-## Credits
+# Credits
 
 - `qqqlab/DALI-Lighting-Interface` (`qqqDALI`) for the DALI stack
 - Adafruit GFX + ILI9341 libraries for the display layer
-- Community & iterative testing with real DALI hardware
