@@ -6,7 +6,7 @@ clone key configuration values, reset device config, and monitor bus traffic.
 > Note on provenance:  
 > The firmware was created using AI-assisted “vibe coding” (with human iteration and testing).  
 > The PCB / hardware wiring & integration were designed and built by hand.
-> Current FW version (1.3.6) only allows for DALI1 and a few DALI2 devices (not all sensors are found).
+> Current FW version (1.3.8) only allows for DALI1 and a few DALI2 devices (not all sensors are found).
 > Please understand that the DALI bus may not be isolated from mains voltage! Do not use the internal power supply if there is allready voltage on the bus!
   If you are using the internal power supply, the DALI bus is not fully isolated! If you use an external supply, the tool is fully isolated.
   The internal power supply should be able to output 150mA, so it is not capable to supply a whole set of 64 devices, i tested it with more than 10 devices.
