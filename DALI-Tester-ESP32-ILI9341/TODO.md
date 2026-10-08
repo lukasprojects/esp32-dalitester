@@ -1,6 +1,6 @@
 # DALI Tester - Feature & Aufgabenliste
 
-> **Letzte Aktualisierung:** 2026-04-12
+> **Letzte Aktualisierung:** 2026-07-30
 
 ---
 
@@ -66,6 +66,15 @@
 - [x] 10 Bitmap-Icons (38×38px, 1-bit monochrom via drawBitmap)
 - [x] Header mit Titel und Status-Badges
 - [x] Footer mit kontext-sensitiven Hints
+- [x] Menüpunkt für SD-Karten-Browser
+- [x] Menüpunkt für WAGO-Projektanzeige (read-only)
+
+### SD / Projektdateien
+- [x] SD-Karten-Ordnerstruktur anzeigen
+- [x] WAGO-Projekte auf SD erkennen (`solution.xml`, `module_*.xml`)
+- [x] Read-only Anzeige von WAGO-Projekten
+- [ ] WAGO-Projekte bearbeiten und speichern
+- [ ] Native `.wdc2s` ZIP-Dateien direkt auf dem ESP32 lesen
 
 ### Device Parameters
 - [x] Geräteparameter auslesen (Levels, Fade, etc.)
@@ -237,7 +246,8 @@
 7. ✅ Erkennung nicht-adressierter Geräte (erledigt im Scan)
 8. ✅ DALI-2 Control Device Scan (Sensoren, Taster etc.)
 9. 💡 DALI-2 Control Device Discovery (erweitert: Instanzen, Memory Banks)
-9. 💡 WiFi-Interface für Remote-Steuerung
+10. ⏳ WAGO-Projekte bearbeiten und wieder speichern
+11. 💡 WiFi-Interface für Remote-Steuerung
 
 ---
 
@@ -248,6 +258,7 @@
 - 2026-03-20: Scan Devices zeigt jetzt adressierte UND unadressierte Geräte in einer gemeinsamen Liste (v1.2.2).
 - 2026-03-19: Adress-Löschung korrigiert (INITIALISE fehlte), Navigation von Detailansicht geht zurück zur Scan-Liste (v1.2.3).
 - 2026-04-12: Pong Easter Egg hinzugefügt (8s Hold im Home-Menü) (v1.3.8).
+- 2026-07-30: SD Browser und read-only WAGO Viewer hinzugefügt. WAGO-Projekte werden auf SD per `solution.xml` / `module_*.xml` erkannt; gepackte `.wdc2s` Dateien zeigen vorerst nur einen Entpack-Hinweis (v1.4.0).
 - 2026-04-12: Home-Menü Partial Redraw (nur geänderte Tiles), Header-Badges vergrößert (+4px), Batterie-Anzeige beim Start repariert (v1.3.7).
 - 2026-04-08: Hardware Rev 1.1 - Pin-Belegung aktualisiert (TFT_CS=5, TFT_DC=4, TFT_RST=17), LCD Backlight Pin (TFT_LED=GPIO2) hinzugefügt.
 - 2026-03-24: Bus Monitor Live-Ansicht repariert - Ring-Buffer Count blieb bei 80 stehen, Generation-Counter eingeführt (v1.3.4).

@@ -21,6 +21,9 @@ LocateState locateState;
 BusMonState busMonState;
 PopupState popupState;
 DeviceParamsState deviceParamsState;
+SdBrowserState sdBrowserState;
+WagoViewerState wagoViewerState;
+LoadedWagoState loadedWagoState;
 PongState pongState;
 
 // =============================================================================
@@ -36,7 +39,9 @@ static const char* homeMenuItems[] = {
     "Send CMD",
     "Broadcast Control",
     "Locate",
-    "Bus Monitor"
+    "Bus Monitor",
+    "SD Browser",
+    "WAGO Viewer"
 };
 static const uint8_t HOME_MENU_COUNT = sizeof(homeMenuItems) / sizeof(homeMenuItems[0]);
 
@@ -46,13 +51,13 @@ static const char* homeTileLine1[] = {
     "Scan", "Device", "Address",
     "Clone", "Reset", "DALI",
     "Send", "Dimmer", "Locate",
-    "Bus"
+    "Bus", "SD", "WAGO"
 };
 static const char* homeTileLine2[] = {
     "Devices", "Params", "Device",
     "Config", "Device", "PSU",
     "Command", "Control", "Device",
-    "Monitor"
+    "Monitor", "Card", "Project"
 };
 
 // Tile grid layout constants
@@ -84,8 +89,28 @@ static const uint8_t* const iconBitmaps[] = {
     icon_07_send_cmd,
     icon_08_broadcast_control,
     icon_09_locate,
-    icon_10_bus_monitor
+    icon_10_bus_monitor,
+    icon_11_sd_card,
+    icon_12_wago_project
 };
+
+static void drawSdBusyOverlay() {
+    const uint8_t* busyIcon = dali_icons[12].data;
+    const int16_t boxW = 86;
+    const int16_t boxH = 86;
+    const int16_t x = (TFT_WIDTH - boxW) / 2;
+    const int16_t y = HEADER_HEIGHT + (uiGetContentHeight() - boxH) / 2;
+    const int16_t iconX = x + (boxW - DALI_ICON_WIDTH) / 2;
+    const int16_t iconY = y + 10;
+
+    tft.fillRoundRect(x, y, boxW, boxH, 8, COLOR_BG);
+    tft.drawRoundRect(x, y, boxW, boxH, 8, COLOR_HIGHLIGHT);
+    tft.drawBitmap(iconX, iconY, busyIcon, DALI_ICON_WIDTH, DALI_ICON_HEIGHT, COLOR_TEXT);
+    tft.setTextSize(1);
+    tft.setTextColor(COLOR_TEXT);
+    tft.setCursor(x + 19, y + 58);
+    tft.print("SD busy...");
+}
 
 static void drawTile(uint8_t index, bool selected, int16_t scrollPixelY) {
     uint8_t col = index % TILE_COLS;
@@ -132,6 +157,218 @@ static void drawTile(uint8_t index, bool selected, int16_t scrollPixelY) {
         tft.setCursor(x + (TILE_W - w2) / 2, textY + 18);
         tft.print(line2);
     }
+}
+
+static void truncateListLabel(const char* src, char* dst, size_t dstSize) {
+    if (dstSize == 0) return;
+    if (!src) {
+        dst[0] = '\0';
+        return;
+    }
+
+    size_t srcLen = strlen(src);
+    if (srcLen < dstSize) {
+        strncpy(dst, src, dstSize - 1);
+        dst[dstSize - 1] = '\0';
+        return;
+    }
+
+    if (dstSize <= 4) {
+        strncpy(dst, src, dstSize - 1);
+        dst[dstSize - 1] = '\0';
+        return;
+    }
+
+    memcpy(dst, src, dstSize - 4);
+    memcpy(dst + dstSize - 4, "...", 4);
+}
+
+static void ensureListSelectionVisible(int16_t itemCount) {
+    if (itemCount <= 0) {
+        ui.selectedIndex = 0;
+        ui.scrollOffset = 0;
+        return;
+    }
+
+    ui.selectedIndex = uiClamp(ui.selectedIndex, 0, itemCount - 1);
+    int16_t visibleItems = uiGetVisibleItems();
+    if (ui.selectedIndex < ui.scrollOffset) {
+        ui.scrollOffset = ui.selectedIndex;
+    } else if (ui.selectedIndex >= ui.scrollOffset + visibleItems) {
+        ui.scrollOffset = ui.selectedIndex - visibleItems + 1;
+    }
+}
+
+static const WagoGearConfig* findActiveWagoGear(uint8_t addr) {
+    if (!loadedWagoState.loaded || !loadedWagoState.module.valid) return nullptr;
+
+    for (uint8_t i = 0; i < loadedWagoState.module.gearCount; i++) {
+        const WagoGearConfig& gear = loadedWagoState.module.gears[i];
+        if (gear.valid && gear.shortAddress == addr) return &gear;
+    }
+    return nullptr;
+}
+
+static WagoGearConfig* findMutableActiveWagoGear(uint8_t addr) {
+    if (!loadedWagoState.loaded || !loadedWagoState.module.valid) return nullptr;
+
+    for (uint8_t i = 0; i < loadedWagoState.module.gearCount; i++) {
+        WagoGearConfig& gear = loadedWagoState.module.gears[i];
+        if (gear.valid && gear.shortAddress == addr) return &gear;
+    }
+    return nullptr;
+}
+
+static const WagoControlDeviceConfig* findActiveWagoCtrl(uint8_t addr) {
+    if (!loadedWagoState.loaded || !loadedWagoState.module.valid) return nullptr;
+
+    for (uint8_t i = 0; i < loadedWagoState.module.ctrlDeviceCount; i++) {
+        const WagoControlDeviceConfig& ctrl = loadedWagoState.module.ctrlDevices[i];
+        if (ctrl.valid && ctrl.shortAddress == addr) return &ctrl;
+    }
+    return nullptr;
+}
+
+static void markLoadedWagoDirty() {
+    if (loadedWagoState.loaded) {
+        loadedWagoState.dirty = true;
+    }
+}
+
+bool uiProjectModeActive() {
+    return loadedWagoState.loaded;
+}
+
+static void deviceParamsApplyExpectedConfig(uint8_t addr) {
+    const WagoGearConfig* gear = findActiveWagoGear(addr);
+    deviceParamsState.addr = addr;
+    deviceParamsState.writeAddr = addr;
+
+    if (!gear) {
+        deviceParamsState.hasExpectedConfig = false;
+        deviceParamsState.compareDone = false;
+        deviceParamsState.compareReadOk = false;
+        deviceParamsState.compareMatch = false;
+        deviceParamsState.diffCount = 0;
+        deviceParamsState.expectedName[0] = '\0';
+        return;
+    }
+
+    deviceParamsState.maxLevel = gear->config.maxLevel;
+    deviceParamsState.minLevel = gear->config.minLevel;
+    deviceParamsState.powerOnLevel = gear->config.powerOnLevel;
+    deviceParamsState.sysFailLevel = gear->config.sysFailLevel;
+    deviceParamsState.fadeTime = gear->config.fadeTime;
+    deviceParamsState.fadeRate = gear->config.fadeRate;
+    deviceParamsState.groups = gear->groups;
+    memcpy(deviceParamsState.sceneLevels, gear->sceneLevels, sizeof(deviceParamsState.sceneLevels));
+    deviceParamsState.loaded = true;
+    deviceParamsState.deviceType = 255;
+    deviceParamsState.actualLevel = 0;
+    strncpy(deviceParamsState.expectedName, gear->name, sizeof(deviceParamsState.expectedName) - 1);
+    deviceParamsState.expectedName[sizeof(deviceParamsState.expectedName) - 1] = '\0';
+    deviceParamsState.hasExpectedConfig = true;
+    deviceParamsState.compareDone = false;
+    deviceParamsState.compareReadOk = false;
+    deviceParamsState.compareMatch = false;
+    deviceParamsState.diffCount = 0;
+}
+
+static void deviceParamsCheckExpectedConfig() {
+    deviceParamsState.compareDone = true;
+    deviceParamsState.compareReadOk = false;
+    deviceParamsState.compareMatch = false;
+    deviceParamsState.diffCount = 0;
+
+    if (!deviceParamsState.hasExpectedConfig) return;
+
+    uint8_t addr = deviceParamsState.addr;
+    int16_t val = 0;
+    uint8_t diffs = 0;
+    const WagoGearConfig* gear = findActiveWagoGear(addr);
+    if (!gear) return;
+
+    val = daliQueryMaxLevel(addr);
+    if (val < 0) return;
+    if ((uint8_t)val != gear->config.maxLevel) diffs++;
+
+    val = daliQueryMinLevel(addr);
+    if (val < 0) return;
+    if ((uint8_t)val != gear->config.minLevel) diffs++;
+
+    val = daliQueryPowerOnLevel(addr);
+    if (val < 0) return;
+    if ((uint8_t)val != gear->config.powerOnLevel) diffs++;
+
+    val = daliQuerySysFailLevel(addr);
+    if (val < 0) return;
+    if ((uint8_t)val != gear->config.sysFailLevel) diffs++;
+
+    val = daliQueryFadeTime(addr);
+    if (val < 0) return;
+    if ((uint8_t)val != (gear->config.fadeTime & 0x0F)) diffs++;
+
+    val = daliQueryFadeRate(addr);
+    if (val < 0) return;
+    if ((uint8_t)val != (gear->config.fadeRate & 0x0F)) diffs++;
+
+    uint16_t groups = daliQueryGroups(addr);
+    if (groups != gear->groups) diffs++;
+
+    for (uint8_t scene = 0; scene < 16; scene++) {
+        val = daliQuerySceneLevel(addr, scene);
+        if (val < 0) return;
+        if ((uint8_t)val != gear->sceneLevels[scene]) diffs++;
+    }
+
+    deviceParamsState.compareReadOk = true;
+    deviceParamsState.compareMatch = (diffs == 0);
+    deviceParamsState.diffCount = diffs;
+}
+
+static void getLoadedScanStats(uint8_t* matchedGear,
+                               uint8_t* newGear,
+                               uint8_t* matchedCtrl,
+                               uint8_t* newCtrl) {
+    if (matchedGear) *matchedGear = 0;
+    if (newGear) *newGear = 0;
+    if (matchedCtrl) *matchedCtrl = 0;
+    if (newCtrl) *newCtrl = 0;
+
+    if (!loadedWagoState.loaded || !loadedWagoState.module.valid) return;
+
+    for (uint8_t i = 0; i < scanState.deviceCount; i++) {
+        if (findActiveWagoGear(scanState.foundAddrs[i])) {
+            if (matchedGear) (*matchedGear)++;
+        } else if (newGear) {
+            (*newGear)++;
+        }
+    }
+
+    for (uint8_t i = 0; i < scanState.ctrlDevCount; i++) {
+        if (findActiveWagoCtrl(scanState.ctrlDevAddrs[i])) {
+            if (matchedCtrl) (*matchedCtrl)++;
+        } else if (newCtrl) {
+            (*newCtrl)++;
+        }
+    }
+}
+
+static bool wagoProjectShowSaveRow() {
+    return loadedWagoState.loaded && loadedWagoState.dirty &&
+           strcmp(wagoViewerState.currentProjectPath, loadedWagoState.projectPath) == 0;
+}
+
+static int16_t getWagoDisplayItemCount() {
+    if (!wagoViewerState.inProjectView) return wagoViewerState.projectCount;
+    return wagoViewerState.itemCount + (wagoProjectShowSaveRow() ? 1 : 0);
+}
+
+static int16_t mapWagoDisplayIndexToItemIndex(int16_t displayIndex) {
+    if (!wagoProjectShowSaveRow()) return displayIndex;
+    if (displayIndex == 1) return -1;
+    if (displayIndex > 1) return displayIndex - 1;
+    return displayIndex;
 }
 
 // =============================================================================
@@ -290,7 +527,8 @@ void screenHomeDraw() {
         uiDrawHeader("DALI Tester");
         uiClearContent();
         // Footer with FW/HW version and credits (2 lines)
-        tft.fillRect(0, TFT_HEIGHT - FOOTER_HEIGHT, TFT_WIDTH, FOOTER_HEIGHT, COLOR_FOOTER_BG);
+        uint16_t footerBg = uiProjectModeActive() ? COLOR_PROJECT_FOOTER_BG : COLOR_FOOTER_BG;
+        tft.fillRect(0, TFT_HEIGHT - FOOTER_HEIGHT, TFT_WIDTH, FOOTER_HEIGHT, footerBg);
         tft.setTextSize(1);
         tft.setTextColor(COLOR_TEXT);
         char footerBuf[52];
@@ -364,6 +602,12 @@ void screenHomeInput(int16_t delta, ButtonEvent btn) {
                 break;
             case 1:
                 memset(&deviceParamsState, 0, sizeof(deviceParamsState));
+                if (loadedWagoState.loaded && loadedWagoState.module.gearCount > 0) {
+                    uint8_t addr = loadedWagoState.module.gears[0].shortAddress;
+                    deviceParamsState.addr = addr;
+                    deviceParamsState.writeAddr = addr;
+                    deviceParamsApplyExpectedConfig(addr);
+                }
                 uiSetScreen(SCREEN_DEVICE_PARAMS);
                 break;
             case 2: 
@@ -400,6 +644,14 @@ void screenHomeInput(int16_t delta, ButtonEvent btn) {
             case 9: 
                 memset(&busMonState, 0, sizeof(busMonState));
                 uiSetScreen(SCREEN_BUS_MONITOR); 
+                break;
+            case 10:
+                memset(&sdBrowserState, 0, sizeof(sdBrowserState));
+                uiSetScreen(SCREEN_SD_BROWSER);
+                break;
+            case 11:
+                memset(&wagoViewerState, 0, sizeof(wagoViewerState));
+                uiSetScreen(SCREEN_WAGO_VIEWER);
                 break;
         }
     }
@@ -447,7 +699,21 @@ void screenScanDraw() {
     
     // Display found devices summary
     char buf[40];
-    if (scanState.ctrlDevCount > 0 || scanState.unaddressedCount > 0) {
+    if (loadedWagoState.loaded && loadedWagoState.module.valid) {
+        uint8_t matchedGear = 0;
+        uint8_t newGear = 0;
+        uint8_t matchedCtrl = 0;
+        uint8_t newCtrl = 0;
+        getLoadedScanStats(&matchedGear, &newGear, &matchedCtrl, &newCtrl);
+        snprintf(buf, sizeof(buf), "Cfg G%u/%u D%u/%u N%u/%u",
+                 matchedGear,
+                 loadedWagoState.module.gearCount,
+                 matchedCtrl,
+                 loadedWagoState.module.ctrlDeviceCount,
+                 newGear,
+                 newCtrl);
+        uiDrawText(8, HEADER_HEIGHT + 4, buf, COLOR_WARNING, 1);
+    } else if (scanState.ctrlDevCount > 0 || scanState.unaddressedCount > 0) {
         snprintf(buf, sizeof(buf), "G:%d D:%d U:%d", 
                  scanState.deviceCount, scanState.ctrlDevCount, scanState.unaddressedCount);
         uiDrawText(8, HEADER_HEIGHT + 4, buf, COLOR_WARNING, CONTENT_TEXT_SIZE);
@@ -476,7 +742,7 @@ void screenScanDraw() {
             uint8_t cdIdx = idx - scanState.deviceCount;
             uint8_t addr = scanState.ctrlDevAddrs[cdIdx];
             uint8_t devType = scanState.ctrlDevTypes[cdIdx];
-            snprintf(buf, sizeof(buf), "SA%02d D:%s", addr, daliGetDeviceTypeName(devType));
+            snprintf(buf, sizeof(buf), "SA%02d D:%s I:%u", addr, daliGetDeviceTypeName(devType), scanState.ctrlDevInstCount[cdIdx]);
         } else {
             uint8_t unIdx = idx - scanState.deviceCount - scanState.ctrlDevCount + 1;
             snprintf(buf, sizeof(buf), "Unaddressed #%d", unIdx);
@@ -488,6 +754,13 @@ void screenScanDraw() {
         if (selected) {
             tft.fillRect(0, y, TFT_WIDTH, MENU_ITEM_HEIGHT, COLOR_SELECTED);
             tft.setTextColor(COLOR_BG);
+        } else if (isGear && loadedWagoState.loaded && !findActiveWagoGear(scanState.foundAddrs[idx])) {
+            tft.fillRect(0, y, TFT_WIDTH, MENU_ITEM_HEIGHT, COLOR_BG);
+            tft.setTextColor(COLOR_WARNING);
+        } else if (isCtrlDev && loadedWagoState.loaded &&
+                   !findActiveWagoCtrl(scanState.ctrlDevAddrs[idx - scanState.deviceCount])) {
+            tft.fillRect(0, y, TFT_WIDTH, MENU_ITEM_HEIGHT, COLOR_BG);
+            tft.setTextColor(COLOR_WARNING);
         } else if (isCtrlDev) {
             tft.fillRect(0, y, TFT_WIDTH, MENU_ITEM_HEIGHT, COLOR_BG);
             tft.setTextColor(COLOR_HIGHLIGHT);
@@ -518,7 +791,8 @@ void screenScanDraw() {
             uint8_t cdIdx = scanState.selectedDevice - scanState.deviceCount;
             uint8_t addr = scanState.ctrlDevAddrs[cdIdx];
             uint8_t devType = scanState.ctrlDevTypes[cdIdx];
-            snprintf(infoBuf, sizeof(infoBuf), "SA%d Device - %s", addr, daliGetDeviceTypeName(devType));
+            snprintf(infoBuf, sizeof(infoBuf), "SA%d D %s I%u O%u L%u", addr, daliGetDeviceTypeName(devType),
+                     scanState.ctrlDevInstCount[cdIdx], scanState.ctrlDevOccCount[cdIdx], scanState.ctrlDevLightCount[cdIdx]);
             uiDrawText(8, infoY, infoBuf, COLOR_HIGHLIGHT, CONTENT_TEXT_SIZE);
         } else {
             snprintf(infoBuf, sizeof(infoBuf), "Unaddressed - use Address Device");
@@ -576,6 +850,9 @@ void screenScanInput(int16_t delta, ButtonEvent btn) {
             for (int i = 0; i < scanState.ctrlDevCount; i++) {
                 int16_t devType = daliQueryDeviceDeviceType(scanState.ctrlDevAddrs[i]);
                 scanState.ctrlDevTypes[i] = (devType >= 0) ? devType : 0xFF;
+                scanState.ctrlDevInstCount[i] = 0;
+                scanState.ctrlDevOccCount[i] = 0;
+                scanState.ctrlDevLightCount[i] = 0;
             }
             
             // 3. Count unaddressed devices on bus
@@ -854,6 +1131,13 @@ void screenAddressInput(int16_t delta, ButtonEvent btn) {
                     break;
                 case 2:  // Change Address
                     success = daliChangeAddress(addressState.currentAddr, addressState.newAddr);
+                    if (success && loadedWagoState.loaded) {
+                        WagoGearConfig* gear = findMutableActiveWagoGear(addressState.currentAddr);
+                        if (gear) {
+                            gear->shortAddress = addressState.newAddr;
+                            markLoadedWagoDirty();
+                        }
+                    }
                     break;
             }
             daliSetStatus(success ? DALI_STATUS_OK : DALI_STATUS_FAILED);
@@ -1638,6 +1922,412 @@ void screenBusMonInput(int16_t delta, ButtonEvent btn) {
 }
 
 // =============================================================================
+// SD BROWSER SCREEN
+// =============================================================================
+static void refreshSdBrowser() {
+    if (!sdBrowserState.mountAttempted) {
+        drawSdBusyOverlay();
+        sdBrowserState.mountAttempted = true;
+        sdBrowserState.mounted = storageSdEnsureMounted();
+        strncpy(sdBrowserState.error, storageSdGetLastError(), sizeof(sdBrowserState.error) - 1);
+        sdBrowserState.error[sizeof(sdBrowserState.error) - 1] = '\0';
+        strncpy(sdBrowserState.currentPath, "/", sizeof(sdBrowserState.currentPath) - 1);
+        sdBrowserState.currentPath[sizeof(sdBrowserState.currentPath) - 1] = '\0';
+    }
+
+    if (!sdBrowserState.mounted) {
+        drawSdBusyOverlay();
+        sdBrowserState.mounted = storageSdEnsureMounted();
+        strncpy(sdBrowserState.error, storageSdGetLastError(), sizeof(sdBrowserState.error) - 1);
+        sdBrowserState.error[sizeof(sdBrowserState.error) - 1] = '\0';
+        return;
+    }
+
+    drawSdBusyOverlay();
+    if (!storageListDirectory(sdBrowserState.currentPath,
+                              sdBrowserState.entries,
+                              STORAGE_MAX_SD_ENTRIES,
+                              &sdBrowserState.entryCount)) {
+        strncpy(sdBrowserState.error, storageSdGetLastError(), sizeof(sdBrowserState.error) - 1);
+        sdBrowserState.error[sizeof(sdBrowserState.error) - 1] = '\0';
+    }
+}
+
+void screenSdBrowserDraw() {
+    refreshSdBrowser();
+
+    if (ui.needsFullRedraw) {
+        uiDrawHeader("SD Browser");
+        ui.needsFullRedraw = false;
+    }
+
+    uiClearContent();
+
+    if (!sdBrowserState.mounted) {
+        uiDrawTextCentered(84, "SD init failed", COLOR_ERROR, 2);
+        uiDrawTextCentered(112, sdBrowserState.error[0] ? sdBrowserState.error : "Check wiring", COLOR_TEXT, 1);
+        uiDrawTextCentered(128, "CS pin in config.h", COLOR_TEXT, 1);
+        uiDrawFooter("Long=Back");
+        return;
+    }
+
+    char pathBuf[30];
+    truncateListLabel(sdBrowserState.currentPath, pathBuf, sizeof(pathBuf));
+    uiDrawText(4, HEADER_HEIGHT + 4, pathBuf, COLOR_HIGHLIGHT, 1);
+
+    int16_t baseY = HEADER_HEIGHT + 14;
+    int16_t parentOffset = strcmp(sdBrowserState.currentPath, "/") == 0 ? 0 : 1;
+    int16_t totalItems = sdBrowserState.entryCount + parentOffset;
+    ui.maxItems = totalItems;
+
+    if (totalItems == 0) {
+        uiDrawTextCentered(100, "Directory empty", COLOR_TEXT, 2);
+        uiDrawFooter("Long=Back");
+        return;
+    }
+
+    ensureListSelectionVisible(totalItems);
+
+    for (int16_t itemIndex = 0; itemIndex < totalItems; itemIndex++) {
+        int16_t visibleIndex = itemIndex - ui.scrollOffset;
+        if (visibleIndex < 0 || visibleIndex >= uiGetVisibleItems() - 1) continue;
+
+        int16_t y = baseY + visibleIndex * MENU_ITEM_HEIGHT;
+        bool selected = itemIndex == ui.selectedIndex;
+        uint16_t bgColor = selected ? COLOR_SELECTED : COLOR_BG;
+        uint16_t textColor = selected ? COLOR_BG : COLOR_TEXT;
+        tft.fillRect(0, y, TFT_WIDTH, MENU_ITEM_HEIGHT, bgColor);
+        tft.setTextSize(2);
+        tft.setTextColor(textColor);
+        tft.setCursor(4, y + 4);
+
+        char line[32];
+        if (parentOffset && itemIndex == 0) {
+            truncateListLabel("[..] Parent", line, sizeof(line));
+        } else {
+            const SdBrowserEntry& entry = sdBrowserState.entries[itemIndex - parentOffset];
+            char raw[STORAGE_MAX_NAME_LEN + 8];
+            snprintf(raw, sizeof(raw), "%s%s", entry.isDir ? "[D] " : "    ", entry.name);
+            truncateListLabel(raw, line, sizeof(line));
+        }
+        tft.print(line);
+    }
+
+    if (totalItems > (uiGetVisibleItems() - 1)) {
+        uiDrawScrollbar(totalItems, uiGetVisibleItems() - 1, ui.scrollOffset);
+    }
+
+    uiDrawFooter("Click=Open Long=Back");
+}
+
+void screenSdBrowserInput(int16_t delta, ButtonEvent btn) {
+    if (btn == BTN_LONG_PRESS) {
+        uiGoBack();
+        return;
+    }
+
+    int16_t totalItems = sdBrowserState.entryCount + (strcmp(sdBrowserState.currentPath, "/") == 0 ? 0 : 1);
+    if (delta != 0 && totalItems > 0) {
+        ui.selectedIndex = uiClamp(ui.selectedIndex + delta, 0, totalItems - 1);
+        ensureListSelectionVisible(totalItems);
+        ui.needsFullRedraw = true;
+    }
+
+    if (btn != BTN_CLICK || !sdBrowserState.mounted || totalItems <= 0) {
+        return;
+    }
+
+    bool hasParent = strcmp(sdBrowserState.currentPath, "/") != 0;
+    if (hasParent && ui.selectedIndex == 0) {
+        storageDirectoryUp(sdBrowserState.currentPath, sizeof(sdBrowserState.currentPath));
+        ui.selectedIndex = 0;
+        ui.scrollOffset = 0;
+        ui.needsFullRedraw = true;
+        return;
+    }
+
+    const SdBrowserEntry& entry = sdBrowserState.entries[ui.selectedIndex - (hasParent ? 1 : 0)];
+    if (entry.isDir) {
+        strncpy(sdBrowserState.currentPath, entry.path, sizeof(sdBrowserState.currentPath) - 1);
+        sdBrowserState.currentPath[sizeof(sdBrowserState.currentPath) - 1] = '\0';
+        ui.selectedIndex = 0;
+        ui.scrollOffset = 0;
+        ui.needsFullRedraw = true;
+    }
+}
+
+// =============================================================================
+// WAGO VIEWER SCREEN
+// =============================================================================
+static void refreshWagoProjectList() {
+    if (!wagoViewerState.mountAttempted) {
+        drawSdBusyOverlay();
+        wagoViewerState.mountAttempted = true;
+        wagoViewerState.mounted = storageSdEnsureMounted();
+        strncpy(wagoViewerState.error, storageSdGetLastError(), sizeof(wagoViewerState.error) - 1);
+        wagoViewerState.error[sizeof(wagoViewerState.error) - 1] = '\0';
+    }
+
+    if (wagoViewerState.mounted && wagoViewerState.projectListLoaded) {
+        return;
+    }
+
+    if (!wagoViewerState.mounted) {
+        drawSdBusyOverlay();
+        wagoViewerState.mounted = storageSdEnsureMounted();
+        strncpy(wagoViewerState.error, storageSdGetLastError(), sizeof(wagoViewerState.error) - 1);
+        wagoViewerState.error[sizeof(wagoViewerState.error) - 1] = '\0';
+        return;
+    }
+
+    drawSdBusyOverlay();
+    if (!storageFindWagoProjects(wagoViewerState.projects,
+                                 STORAGE_MAX_WAGO_PROJECTS,
+                                 &wagoViewerState.projectCount)) {
+        strncpy(wagoViewerState.error, storageSdGetLastError(), sizeof(wagoViewerState.error) - 1);
+        wagoViewerState.error[sizeof(wagoViewerState.error) - 1] = '\0';
+        return;
+    }
+
+    wagoViewerState.projectListLoaded = true;
+}
+
+static void loadSelectedWagoProject(uint8_t projectIndex) {
+    if (projectIndex >= wagoViewerState.projectCount) return;
+
+    WagoProjectInfo& project = wagoViewerState.projects[projectIndex];
+    strncpy(wagoViewerState.currentProjectPath, project.path, sizeof(wagoViewerState.currentProjectPath) - 1);
+    wagoViewerState.currentProjectPath[sizeof(wagoViewerState.currentProjectPath) - 1] = '\0';
+    wagoViewerState.currentProjectPacked = project.packedFile;
+    drawSdBusyOverlay();
+    storageLoadWagoProjectView(project.path,
+                               project.packedFile,
+                               wagoViewerState.items,
+                               STORAGE_MAX_WAGO_ITEMS,
+                               &wagoViewerState.itemCount,
+                               wagoViewerState.title,
+                               sizeof(wagoViewerState.title));
+    wagoViewerState.moduleCount = 0;
+    if (!project.packedFile && wagoViewerState.itemCount > 0) {
+        unsigned int parsedCount = 0;
+        if (sscanf(wagoViewerState.items[0].line2, "Cards:%u", &parsedCount) == 1) {
+            wagoViewerState.moduleCount = (uint8_t)parsedCount;
+        }
+    }
+    wagoViewerState.inProjectView = true;
+    ui.selectedIndex = 0;
+    ui.scrollOffset = 0;
+}
+
+#define WAGO_ITEM_HEIGHT 30
+
+static int16_t getWagoVisibleItems() {
+    return uiGetContentHeight() / WAGO_ITEM_HEIGHT;
+}
+
+static void ensureWagoSelectionVisible(int16_t itemCount) {
+    if (itemCount <= 0) {
+        ui.selectedIndex = 0;
+        ui.scrollOffset = 0;
+        return;
+    }
+
+    int16_t visibleItems = getWagoVisibleItems();
+    ui.selectedIndex = uiClamp(ui.selectedIndex, 0, itemCount - 1);
+    if (ui.selectedIndex < ui.scrollOffset) {
+        ui.scrollOffset = ui.selectedIndex;
+    } else if (ui.selectedIndex >= ui.scrollOffset + visibleItems) {
+        ui.scrollOffset = ui.selectedIndex - visibleItems + 1;
+    }
+}
+
+static void drawWagoProjectItem(int16_t index) {
+    int16_t visibleIndex = index - ui.scrollOffset;
+    if (visibleIndex < 0 || visibleIndex >= getWagoVisibleItems()) return;
+
+    int16_t y = HEADER_HEIGHT + visibleIndex * WAGO_ITEM_HEIGHT;
+    bool selected = index == ui.selectedIndex;
+    uint16_t bgColor = selected ? COLOR_SELECTED : COLOR_BG;
+    uint16_t fgColor = selected ? COLOR_BG : COLOR_TEXT;
+    bool sameProjectLoaded = loadedWagoState.loaded &&
+                             strcmp(wagoViewerState.currentProjectPath, loadedWagoState.projectPath) == 0;
+    bool saveRow = wagoProjectShowSaveRow() && index == 1;
+    int16_t itemIndex = mapWagoDisplayIndexToItemIndex(index);
+    bool activeRow = sameProjectLoaded && itemIndex > 0 && (uint8_t)(itemIndex - 1) == loadedWagoState.moduleIndex;
+    uint16_t subColor = selected ? COLOR_BG : (saveRow ? COLOR_WARNING : (activeRow ? COLOR_SUCCESS : COLOR_HIGHLIGHT));
+
+    tft.fillRect(0, y, TFT_WIDTH, WAGO_ITEM_HEIGHT, bgColor);
+    tft.setTextColor(fgColor);
+    tft.setTextSize(1);
+    tft.setCursor(4, y + 4);
+    if (saveRow) {
+        tft.print("Save changes");
+    } else {
+        tft.print(wagoViewerState.items[itemIndex].line1);
+    }
+
+    if (saveRow) {
+        tft.setTextColor(subColor);
+        tft.setCursor(4, y + 16);
+        tft.print("Write loaded card back to SD");
+        return;
+    }
+
+    if (itemIndex >= 0 && wagoViewerState.items[itemIndex].line2[0]) {
+        tft.setTextColor(subColor);
+        tft.setCursor(4, y + 16);
+        tft.print(wagoViewerState.items[itemIndex].line2);
+        if (activeRow) {
+            tft.setCursor(TFT_WIDTH - 44, y + 16);
+            tft.print("LOAD");
+        }
+    }
+}
+
+void screenWagoViewerDraw() {
+    refreshWagoProjectList();
+
+    if (ui.needsFullRedraw) {
+        uiDrawHeader(wagoViewerState.inProjectView ? wagoViewerState.title : "WAGO Viewer");
+        ui.needsFullRedraw = false;
+    }
+
+    uiClearContent();
+
+    if (!wagoViewerState.mounted) {
+        uiDrawTextCentered(84, "SD init failed", COLOR_ERROR, 2);
+        uiDrawTextCentered(112, wagoViewerState.error[0] ? wagoViewerState.error : "Check wiring", COLOR_TEXT, 1);
+        uiDrawFooter("Long=Back");
+        return;
+    }
+
+    if (!wagoViewerState.inProjectView) {
+        ui.maxItems = wagoViewerState.projectCount;
+        if (wagoViewerState.projectCount == 0) {
+            uiDrawTextCentered(84, "No WAGO project", COLOR_WARNING, 2);
+            uiDrawTextCentered(112, "Need solution.xml or", COLOR_TEXT, 1);
+            uiDrawTextCentered(126, "packed .wdc2s on SD", COLOR_TEXT, 1);
+            uiDrawFooter("Long=Back");
+            return;
+        }
+
+        ensureListSelectionVisible(wagoViewerState.projectCount);
+        for (uint8_t i = 0; i < wagoViewerState.projectCount; i++) {
+            char raw[STORAGE_MAX_NAME_LEN + 8];
+            char line[32];
+            snprintf(raw, sizeof(raw), "%s %s", wagoViewerState.projects[i].packedFile ? "[ZIP]" : "[PRJ]",
+                     wagoViewerState.projects[i].name);
+            truncateListLabel(raw, line, sizeof(line));
+            int16_t visibleIndex = i - ui.scrollOffset;
+            if (visibleIndex < 0 || visibleIndex >= uiGetVisibleItems()) continue;
+            int16_t y = HEADER_HEIGHT + visibleIndex * MENU_ITEM_HEIGHT;
+            bool selected = i == ui.selectedIndex;
+            tft.fillRect(0, y, TFT_WIDTH, MENU_ITEM_HEIGHT, selected ? COLOR_SELECTED : COLOR_BG);
+            tft.setTextSize(2);
+            tft.setTextColor(selected ? COLOR_BG : COLOR_TEXT);
+            tft.setCursor(4, y + 4);
+            tft.print(line);
+        }
+
+        if (wagoViewerState.projectCount > uiGetVisibleItems()) {
+            uiDrawScrollbar(wagoViewerState.projectCount, uiGetVisibleItems(), ui.scrollOffset);
+        }
+        uiDrawFooter("Click=Open Long=Back");
+        return;
+    }
+
+    int16_t displayItemCount = getWagoDisplayItemCount();
+    ui.maxItems = displayItemCount;
+    ensureWagoSelectionVisible(displayItemCount);
+    for (int16_t i = 0; i < displayItemCount; i++) {
+        drawWagoProjectItem(i);
+    }
+    if (displayItemCount > getWagoVisibleItems()) {
+        uiDrawScrollbar(displayItemCount, getWagoVisibleItems(), ui.scrollOffset);
+    }
+    if (wagoViewerState.currentProjectPacked) {
+        uiDrawFooter("Long=Projects");
+    } else if (wagoProjectShowSaveRow()) {
+        uiDrawFooter("Click=Save/Load Long=Projects");
+    } else {
+        uiDrawFooter("Click=LoadMod Long=Projects");
+    }
+}
+
+void screenWagoViewerInput(int16_t delta, ButtonEvent btn) {
+    if (btn == BTN_LONG_PRESS) {
+        if (wagoViewerState.inProjectView) {
+            wagoViewerState.inProjectView = false;
+            ui.selectedIndex = 0;
+            ui.scrollOffset = 0;
+            ui.needsFullRedraw = true;
+            return;
+        }
+        uiGoBack();
+        return;
+    }
+
+    int16_t totalItems = wagoViewerState.inProjectView ? getWagoDisplayItemCount() : wagoViewerState.projectCount;
+    if (delta != 0 && totalItems > 0) {
+        ui.selectedIndex = uiClamp(ui.selectedIndex + delta, 0, totalItems - 1);
+        if (wagoViewerState.inProjectView) {
+            ensureWagoSelectionVisible(totalItems);
+        } else {
+            ensureListSelectionVisible(totalItems);
+        }
+        ui.needsFullRedraw = true;
+    }
+
+    if (btn == BTN_CLICK) {
+        if (!wagoViewerState.inProjectView && wagoViewerState.projectCount > 0) {
+            loadSelectedWagoProject((uint8_t)ui.selectedIndex);
+            ui.needsFullRedraw = true;
+        } else if (wagoViewerState.inProjectView && !wagoViewerState.currentProjectPacked) {
+            if (wagoProjectShowSaveRow() && ui.selectedIndex == 1) {
+                drawSdBusyOverlay();
+                bool saved = storageSaveWagoModuleConfig(loadedWagoState.projectPath,
+                                                         loadedWagoState.moduleIndex,
+                                                         &loadedWagoState.module);
+                if (saved) {
+                    loadedWagoState.dirty = false;
+                }
+                daliSetStatus(saved ? DALI_STATUS_OK : DALI_STATUS_FAILED);
+                drawSdBusyOverlay();
+                storageLoadWagoProjectView(wagoViewerState.currentProjectPath,
+                                           false,
+                                           wagoViewerState.items,
+                                           STORAGE_MAX_WAGO_ITEMS,
+                                           &wagoViewerState.itemCount,
+                                           wagoViewerState.title,
+                                           sizeof(wagoViewerState.title));
+                ui.needsFullRedraw = true;
+                return;
+            }
+
+            int16_t itemIndex = mapWagoDisplayIndexToItemIndex(ui.selectedIndex);
+            if (itemIndex <= 0 || itemIndex > wagoViewerState.moduleCount) {
+                return;
+            }
+
+            uint8_t moduleIndex = (uint8_t)(itemIndex - 1);
+            drawSdBusyOverlay();
+            if (storageLoadWagoModuleConfig(wagoViewerState.currentProjectPath, moduleIndex, &loadedWagoState.module)) {
+                loadedWagoState.loaded = true;
+                loadedWagoState.dirty = false;
+                loadedWagoState.moduleIndex = moduleIndex;
+                strncpy(loadedWagoState.projectPath, wagoViewerState.currentProjectPath,
+                        sizeof(loadedWagoState.projectPath) - 1);
+                loadedWagoState.projectPath[sizeof(loadedWagoState.projectPath) - 1] = '\0';
+                daliSetStatus(DALI_STATUS_OK);
+            } else {
+                daliSetStatus(DALI_STATUS_FAILED);
+            }
+            ui.needsFullRedraw = true;
+        }
+    }
+}
+
+// =============================================================================
 // POPUP SCREEN
 // =============================================================================
 
@@ -1799,14 +2489,29 @@ static bool deviceParamsWrite() {
         }
     }
 
+    if (success) {
+        WagoGearConfig* gear = findMutableActiveWagoGear(addr);
+        if (gear) {
+            gear->config.maxLevel = deviceParamsState.maxLevel;
+            gear->config.minLevel = deviceParamsState.minLevel;
+            gear->config.powerOnLevel = deviceParamsState.powerOnLevel;
+            gear->config.sysFailLevel = deviceParamsState.sysFailLevel;
+            gear->config.fadeTime = deviceParamsState.fadeTime;
+            gear->config.fadeRate = deviceParamsState.fadeRate;
+            gear->groups = deviceParamsState.groups;
+            memcpy(gear->sceneLevels, deviceParamsState.sceneLevels, sizeof(gear->sceneLevels));
+            markLoadedWagoDirty();
+        }
+    }
+
     return success;
 }
 
 static const char* getFieldName(int16_t field) {
     switch(field) {
         case DEVPARAM_FIELD_ADDR: return "Address";
-        case DEVPARAM_FIELD_LOAD: return "> Load Data";
-        case DEVPARAM_FIELD_WRITE: return "> Write to Addr";
+        case DEVPARAM_FIELD_LOAD: return deviceParamsState.hasExpectedConfig ? "> Check Live" : "> Load Data";
+        case DEVPARAM_FIELD_WRITE: return deviceParamsState.hasExpectedConfig ? "> Write CFG" : "> Write to Addr";
         case DEVPARAM_FIELD_MAX_LEVEL: return "Max Level";
         case DEVPARAM_FIELD_MIN_LEVEL: return "Min Level";
         case DEVPARAM_FIELD_POWER_ON: return "Power On Level";
@@ -1913,16 +2618,38 @@ void screenDeviceParamsDraw() {
     
     // Show current device info in header area
     if (deviceParamsState.loaded) {
-        snprintf(nameBuf, sizeof(nameBuf), "SA %d - %s", 
-                 deviceParamsState.addr, 
-                 daliGetDeviceTypeName(deviceParamsState.deviceType));
+        if (deviceParamsState.hasExpectedConfig) {
+            snprintf(nameBuf, sizeof(nameBuf), "SA %d - CFG", deviceParamsState.addr);
+        } else {
+            snprintf(nameBuf, sizeof(nameBuf), "SA %d - %s", 
+                     deviceParamsState.addr, 
+                     daliGetDeviceTypeName(deviceParamsState.deviceType));
+        }
         uiDrawText(8, y, nameBuf, COLOR_HIGHLIGHT, 1);
         y += 12;
+        if (deviceParamsState.hasExpectedConfig) {
+            tft.fillRect(0, y, TFT_WIDTH, 12, COLOR_BG);
+            uiDrawText(8, y, deviceParamsState.expectedName, COLOR_TEXT, 1);
+            y += 12;
+            if (deviceParamsState.compareDone) {
+                tft.fillRect(0, y, TFT_WIDTH, 12, COLOR_BG);
+                if (!deviceParamsState.compareReadOk) {
+                    uiDrawText(8, y, "Live check failed", COLOR_ERROR, 1);
+                } else if (deviceParamsState.compareMatch) {
+                    uiDrawText(8, y, "CFG match: OK", COLOR_SUCCESS, 1);
+                } else {
+                    snprintf(valBuf, sizeof(valBuf), "CFG diff: %u", deviceParamsState.diffCount);
+                    uiDrawText(8, y, valBuf, COLOR_WARNING, 1);
+                }
+                y += 12;
+            }
+        }
     }
     
     // Calculate visible items
     int16_t itemHeight = MENU_ITEM_HEIGHT;
-    int16_t visible = (uiGetContentHeight() - 16) / itemHeight;
+    int16_t availableHeight = (TFT_HEIGHT - FOOTER_HEIGHT - 2) - y;
+    int16_t visible = availableHeight / itemHeight;
     if (visible < 1) visible = 1;
     
     // Draw scrollable list
@@ -2019,44 +2746,95 @@ void screenDeviceParamsInput(int16_t delta, ButtonEvent btn) {
             // Save the edited value
             uint8_t addr = deviceParamsState.addr;
             bool success = true;
+            bool configOnlyEdit = deviceParamsState.hasExpectedConfig;
             
             switch(deviceParamsState.field) {
                 case DEVPARAM_FIELD_ADDR:
                     deviceParamsState.addr = deviceParamsState.editValue;
                     deviceParamsState.writeAddr = deviceParamsState.editValue;  // Sync write addr
-                    deviceParamsState.loaded = false;  // Need to reload for new address
+                    deviceParamsState.loaded = false;
+                    deviceParamsApplyExpectedConfig(deviceParamsState.addr);
                     break;
                 case DEVPARAM_FIELD_MAX_LEVEL:
-                    success = daliSetMaxLevel(addr, deviceParamsState.editValue);
-                    if (success) deviceParamsState.maxLevel = deviceParamsState.editValue;
+                    success = configOnlyEdit ? true : daliSetMaxLevel(addr, deviceParamsState.editValue);
+                    if (success) {
+                        deviceParamsState.maxLevel = deviceParamsState.editValue;
+                        WagoGearConfig* gear = findMutableActiveWagoGear(addr);
+                        if (gear) {
+                            gear->config.maxLevel = deviceParamsState.editValue;
+                            markLoadedWagoDirty();
+                        }
+                    }
                     break;
                 case DEVPARAM_FIELD_MIN_LEVEL:
-                    success = daliSetMinLevel(addr, deviceParamsState.editValue);
-                    if (success) deviceParamsState.minLevel = deviceParamsState.editValue;
+                    success = configOnlyEdit ? true : daliSetMinLevel(addr, deviceParamsState.editValue);
+                    if (success) {
+                        deviceParamsState.minLevel = deviceParamsState.editValue;
+                        WagoGearConfig* gear = findMutableActiveWagoGear(addr);
+                        if (gear) {
+                            gear->config.minLevel = deviceParamsState.editValue;
+                            markLoadedWagoDirty();
+                        }
+                    }
                     break;
                 case DEVPARAM_FIELD_POWER_ON:
-                    success = daliSetPowerOnLevel(addr, deviceParamsState.editValue);
-                    if (success) deviceParamsState.powerOnLevel = deviceParamsState.editValue;
+                    success = configOnlyEdit ? true : daliSetPowerOnLevel(addr, deviceParamsState.editValue);
+                    if (success) {
+                        deviceParamsState.powerOnLevel = deviceParamsState.editValue;
+                        WagoGearConfig* gear = findMutableActiveWagoGear(addr);
+                        if (gear) {
+                            gear->config.powerOnLevel = deviceParamsState.editValue;
+                            markLoadedWagoDirty();
+                        }
+                    }
                     break;
                 case DEVPARAM_FIELD_SYS_FAIL:
-                    success = daliSetSysFailLevel(addr, deviceParamsState.editValue);
-                    if (success) deviceParamsState.sysFailLevel = deviceParamsState.editValue;
+                    success = configOnlyEdit ? true : daliSetSysFailLevel(addr, deviceParamsState.editValue);
+                    if (success) {
+                        deviceParamsState.sysFailLevel = deviceParamsState.editValue;
+                        WagoGearConfig* gear = findMutableActiveWagoGear(addr);
+                        if (gear) {
+                            gear->config.sysFailLevel = deviceParamsState.editValue;
+                            markLoadedWagoDirty();
+                        }
+                    }
                     break;
                 case DEVPARAM_FIELD_FADE_TIME:
-                    success = daliSetFadeTime(addr, deviceParamsState.editValue);
-                    if (success) deviceParamsState.fadeTime = deviceParamsState.editValue;
+                    success = configOnlyEdit ? true : daliSetFadeTime(addr, deviceParamsState.editValue);
+                    if (success) {
+                        deviceParamsState.fadeTime = deviceParamsState.editValue;
+                        WagoGearConfig* gear = findMutableActiveWagoGear(addr);
+                        if (gear) {
+                            gear->config.fadeTime = deviceParamsState.editValue;
+                            markLoadedWagoDirty();
+                        }
+                    }
                     break;
                 case DEVPARAM_FIELD_FADE_RATE:
-                    success = daliSetFadeRate(addr, deviceParamsState.editValue);
-                    if (success) deviceParamsState.fadeRate = deviceParamsState.editValue;
+                    success = configOnlyEdit ? true : daliSetFadeRate(addr, deviceParamsState.editValue);
+                    if (success) {
+                        deviceParamsState.fadeRate = deviceParamsState.editValue;
+                        WagoGearConfig* gear = findMutableActiveWagoGear(addr);
+                        if (gear) {
+                            gear->config.fadeRate = deviceParamsState.editValue;
+                            markLoadedWagoDirty();
+                        }
+                    }
                     break;
                 default:
                     // Scene levels
                     if (deviceParamsState.field >= DEVPARAM_FIELD_SCENE_START && 
                         deviceParamsState.field < DEVPARAM_FIELD_COUNT) {
                         uint8_t scene = deviceParamsState.field - DEVPARAM_FIELD_SCENE_START;
-                        success = daliSetSceneLevel(addr, scene, deviceParamsState.editValue);
-                        if (success) deviceParamsState.sceneLevels[scene] = deviceParamsState.editValue;
+                        success = configOnlyEdit ? true : daliSetSceneLevel(addr, scene, deviceParamsState.editValue);
+                        if (success) {
+                            deviceParamsState.sceneLevels[scene] = deviceParamsState.editValue;
+                            WagoGearConfig* gear = findMutableActiveWagoGear(addr);
+                            if (gear) {
+                                gear->sceneLevels[scene] = deviceParamsState.editValue;
+                                markLoadedWagoDirty();
+                            }
+                        }
                     }
                     break;
             }
@@ -2071,7 +2849,12 @@ void screenDeviceParamsInput(int16_t delta, ButtonEvent btn) {
             deviceParamsState.field = uiClamp(deviceParamsState.field, 0, DEVPARAM_FIELD_COUNT - 1);
             
             // Adjust scroll
-            int16_t visible = (uiGetContentHeight() - 16) / MENU_ITEM_HEIGHT;
+            int16_t headerLines = 0;
+            if (deviceParamsState.loaded) {
+                headerLines = deviceParamsState.hasExpectedConfig ? (deviceParamsState.compareDone ? 3 : 2) : 1;
+            }
+            int16_t listTop = HEADER_HEIGHT + 4 + headerLines * 12;
+            int16_t visible = ((TFT_HEIGHT - FOOTER_HEIGHT - 2) - listTop) / MENU_ITEM_HEIGHT;
             if (visible < 1) visible = 1;
             
             if (deviceParamsState.field < deviceParamsState.scrollOffset) {
@@ -2084,8 +2867,10 @@ void screenDeviceParamsInput(int16_t delta, ButtonEvent btn) {
         
         if (btn == BTN_CLICK) {
             if (deviceParamsState.field == DEVPARAM_FIELD_LOAD) {
-                // Load data from device
                 deviceParamsLoad();
+                if (deviceParamsState.hasExpectedConfig) {
+                    deviceParamsCheckExpectedConfig();
+                }
                 ui.needsFullRedraw = true;
             } else if (deviceParamsState.field == DEVPARAM_FIELD_WRITE) {
                 // Enter write address selection mode
@@ -2104,16 +2889,34 @@ void screenDeviceParamsInput(int16_t delta, ButtonEvent btn) {
                     deviceParamsState.field < DEVPARAM_FIELD_SCENE_START) {
                     uint8_t grp = deviceParamsState.field - DEVPARAM_FIELD_GROUP_START;
                     uint8_t addr = deviceParamsState.addr;
-                    bool success;
+                    bool success = true;
                     
                     if (deviceParamsState.groups & (1 << grp)) {
                         // Remove from group
-                        success = daliRemoveFromGroup(addr, grp);
-                        if (success) deviceParamsState.groups &= ~(1 << grp);
+                        if (!deviceParamsState.hasExpectedConfig) {
+                            success = daliRemoveFromGroup(addr, grp);
+                        }
+                        if (success) {
+                            deviceParamsState.groups &= ~(1 << grp);
+                            WagoGearConfig* gear = findMutableActiveWagoGear(addr);
+                            if (gear) {
+                                gear->groups = deviceParamsState.groups;
+                                markLoadedWagoDirty();
+                            }
+                        }
                     } else {
                         // Add to group
-                        success = daliAddToGroup(addr, grp);
-                        if (success) deviceParamsState.groups |= (1 << grp);
+                        if (!deviceParamsState.hasExpectedConfig) {
+                            success = daliAddToGroup(addr, grp);
+                        }
+                        if (success) {
+                            deviceParamsState.groups |= (1 << grp);
+                            WagoGearConfig* gear = findMutableActiveWagoGear(addr);
+                            if (gear) {
+                                gear->groups = deviceParamsState.groups;
+                                markLoadedWagoDirty();
+                            }
+                        }
                     }
                     ui.needsPartialRedraw = true;
                 }
@@ -2369,6 +3172,8 @@ const ScreenHandler screenHandlers[] = {
     { screenBroadcastCtrlDraw, screenBroadcastCtrlInput },  // SCREEN_BROADCAST_CTRL
     { screenLocateDraw, screenLocateInput },                // SCREEN_LOCATE
     { screenBusMonDraw, screenBusMonInput },                // SCREEN_BUS_MONITOR
+    { screenSdBrowserDraw, screenSdBrowserInput },          // SCREEN_SD_BROWSER
+    { screenWagoViewerDraw, screenWagoViewerInput },        // SCREEN_WAGO_VIEWER
     { screenDeviceParamsDraw, screenDeviceParamsInput },    // SCREEN_DEVICE_PARAMS
     { screenPopupDraw, screenPopupInput },                  // SCREEN_CONFIRM_POPUP
     { screenPongDraw, screenPongInput }                     // SCREEN_PONG

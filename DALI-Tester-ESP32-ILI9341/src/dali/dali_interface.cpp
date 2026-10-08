@@ -72,13 +72,15 @@ void IRAM_ATTR daliTimerISR() {
 // Initialization
 // =============================================================================
 void daliTimerInit() {
-    // ESP32 hardware timer for DALI - 9600 Hz (104.17µs period)
-    // Arduino ESP32 Core 3.x new API: timerBegin(frequency_Hz)
+    // ESP32 hardware timer for DALI - 104 µs ISR cadence.
+    // qqqDALI expects a stable ~104.17 µs tick. On Arduino Core 3.x the
+    // frequency-based timerBegin API proved ambiguous in practice, so use a
+    // 1 MHz timer base and arm the alarm in microseconds explicitly.
     #if ESP_ARDUINO_VERSION_MAJOR >= 3
         // New API (ESP32 Arduino Core 3.x / ESP-IDF 5.x)
-        daliTimer = timerBegin(9600);  // 9600 Hz = 1200 baud * 8 oversampling
+        daliTimer = timerBegin(1000000);  // 1 tick = 1 µs
         timerAttachInterrupt(daliTimer, &daliTimerISR);
-        timerAlarm(daliTimer, 1, true, 0);  // alarm at count 1, auto-reload
+        timerAlarm(daliTimer, DALI_TIMER_US, true, 0);
     #else
         // Old API (ESP32 Arduino Core 2.x / ESP-IDF 4.x)
         daliTimer = timerBegin(0, 80, true);  // Timer 0, prescaler 80 (1µs per tick)
@@ -91,7 +93,8 @@ void daliTimerInit() {
 void daliInit() {
     Serial.println(F("DALI: Initializing..."));
     
-    // Configure TX pin as push-pull output (Waveshare Pico-DALI2 has internal driver)
+    // Match the known-working reference firmware: qqqDALI drives the TX stage
+    // as a normal output and the external interface inverts it onto the bus.
     pinMode(DALI_TX, OUTPUT);
     
     // Test TX pin polarity
@@ -125,6 +128,18 @@ void daliInit() {
     // Test if timer is running by checking milli() after short delay
     delay(50);  // Should increment milli significantly
     Serial.printf("DALI: Timer test - milli()=%d (should be ~48)\n", dali.milli());
+
+    // Temporary diagnostic: generate a visible TX pulse train directly via the
+    // bus abstraction so we can verify whether this hardware revision actually
+    // drives the DALI bus, independent of qqqDALI frame generation.
+    Serial.println(F("DALI: TX boot pulse test start"));
+    for (uint8_t i = 0; i < 6; i++) {
+        bus_set_low();
+        delay(40);
+        bus_set_high();
+        delay(40);
+    }
+    Serial.println(F("DALI: TX boot pulse test end"));
     
     // Clear bus monitor
     daliMonitorClear();
@@ -746,10 +761,11 @@ uint8_t daliScanControlDevices(uint8_t* foundAddrs, uint8_t* gearAddrs, uint8_t 
         }
         if (isGear) continue;
         
-        // Query device status with S=0 (control device addressing)
-        int16_t status = daliQueryDeviceStatus(addr);
-        
-        if (status >= 0) {
+        // Use the conservative 16-bit S=0 device-type query to detect control
+        // devices. 24-bit instance/device queries are only used after a device
+        // has already been found to avoid perturbing the base scan path.
+        int16_t devType = daliQueryDeviceDeviceType(addr);
+        if (devType >= 0) {
             foundAddrs[count++] = addr;
         }
         
@@ -765,6 +781,28 @@ int16_t daliQueryDeviceStatus(uint8_t addr) {
 
 int16_t daliQueryDeviceDeviceType(uint8_t addr) {
     return daliQueryDevice(addr, DALI_CMD_QUERY_DEVICE_TYPE);
+}
+
+int16_t daliQueryDeviceCapabilities(uint8_t addr) {
+    (void)addr;
+    return -1;
+}
+
+int16_t daliQueryDeviceNumberOfInstances(uint8_t addr) {
+    (void)addr;
+    return -1;
+}
+
+int16_t daliQueryDeviceInstanceType(uint8_t addr, uint8_t instance) {
+    (void)addr;
+    (void)instance;
+    return -1;
+}
+
+int16_t daliQueryDeviceInstanceEnabled(uint8_t addr, uint8_t instance) {
+    (void)addr;
+    (void)instance;
+    return -1;
 }
 
 uint8_t daliCountUnaddressed() {

@@ -8,6 +8,7 @@
 
 #include "ui/ui.h"
 #include "dali/dali_interface.h"
+#include "storage/sd_wago.h"
 
 // =============================================================================
 // Screen Handler Function Type
@@ -34,6 +35,9 @@ struct ScanState {
     uint8_t deviceCount;            // Number of control gear found
     uint8_t ctrlDevAddrs[64];       // DALI-2 control devices (sensors etc.)
     uint8_t ctrlDevTypes[64];       // Control device types
+    uint8_t ctrlDevInstCount[64];   // Number of enabled instances per control device
+    uint8_t ctrlDevOccCount[64];    // Occupancy sensor instances (type 3)
+    uint8_t ctrlDevLightCount[64];  // Light sensor instances (type 4)
     uint8_t ctrlDevCount;           // Number of control devices found
     bool scanComplete;
     bool scanning;
@@ -140,10 +144,16 @@ struct DeviceParamsState {
     uint8_t addr;               // Device short address (source)
     uint8_t writeAddr;          // Target address for write operation
     bool loaded;                // Data loaded from device
+    bool hasExpectedConfig;     // Data sourced from loaded WAGO config
     bool editing;               // Currently editing a value
     bool writingAddr;           // Editing write target address
+    bool compareDone;           // Live-vs-config check done
+    bool compareReadOk;         // Live device could be queried
+    bool compareMatch;          // Live data matches expected config
+    uint8_t diffCount;          // Number of differing fields
     int16_t scrollOffset;       // Scroll position
     int16_t field;              // Selected field (0-based)
+    char expectedName[STORAGE_MAX_NAME_LEN];
     
     // Basic parameters
     uint8_t maxLevel;
@@ -163,6 +173,41 @@ struct DeviceParamsState {
     
     // Edit state
     uint8_t editValue;          // Value being edited
+};
+
+// SD Browser Screen State
+struct SdBrowserState {
+    bool mountAttempted;
+    bool mounted;
+    char currentPath[STORAGE_MAX_PATH_LEN];
+    char error[STORAGE_ERROR_LEN];
+    SdBrowserEntry entries[STORAGE_MAX_SD_ENTRIES];
+    uint8_t entryCount;
+};
+
+// WAGO Viewer Screen State
+struct WagoViewerState {
+    bool mountAttempted;
+    bool mounted;
+    bool projectListLoaded;
+    bool inProjectView;
+    char title[STORAGE_MAX_NAME_LEN];
+    char currentProjectPath[STORAGE_MAX_PATH_LEN];
+    char error[STORAGE_ERROR_LEN];
+    WagoProjectInfo projects[STORAGE_MAX_WAGO_PROJECTS];
+    uint8_t projectCount;
+    WagoViewItem items[STORAGE_MAX_WAGO_ITEMS];
+    uint8_t itemCount;
+    uint8_t moduleCount;
+    bool currentProjectPacked;
+};
+
+struct LoadedWagoState {
+    bool loaded;
+    bool dirty;
+    char projectPath[STORAGE_MAX_PATH_LEN];
+    uint8_t moduleIndex;
+    WagoModuleConfig module;
 };
 
 // Pong Easter Egg State
@@ -191,6 +236,9 @@ extern LocateState locateState;
 extern BusMonState busMonState;
 extern PopupState popupState;
 extern DeviceParamsState deviceParamsState;
+extern SdBrowserState sdBrowserState;
+extern WagoViewerState wagoViewerState;
+extern LoadedWagoState loadedWagoState;
 extern PongState pongState;
 
 // =============================================================================
@@ -243,6 +291,14 @@ void screenLocateUpdate();
 void screenBusMonDraw();
 void screenBusMonInput(int16_t delta, ButtonEvent btn);
 void screenBusMonUpdate();
+
+// SD Browser Screen
+void screenSdBrowserDraw();
+void screenSdBrowserInput(int16_t delta, ButtonEvent btn);
+
+// WAGO Viewer Screen
+void screenWagoViewerDraw();
+void screenWagoViewerInput(int16_t delta, ButtonEvent btn);
 
 // Device Parameters Screen
 void screenDeviceParamsDraw();

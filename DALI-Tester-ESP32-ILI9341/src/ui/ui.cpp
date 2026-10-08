@@ -172,7 +172,8 @@ void uiClearContent() {
 }
 
 void uiDrawHeader(const char* title) {
-    tft.fillRect(0, 0, TFT_WIDTH, HEADER_HEIGHT, COLOR_HEADER_BG);
+    uint16_t headerBg = uiProjectModeActive() ? COLOR_PROJECT_HEADER_BG : COLOR_HEADER_BG;
+    tft.fillRect(0, 0, TFT_WIDTH, HEADER_HEIGHT, headerBg);
     tft.setTextSize(2);  // Larger title text
     tft.setTextColor(COLOR_TEXT);
     tft.setCursor(4, 8);
@@ -186,7 +187,8 @@ void uiDrawHeader(const char* title) {
 }
 
 void uiDrawFooter(const char* hint) {
-    tft.fillRect(0, TFT_HEIGHT - FOOTER_HEIGHT, TFT_WIDTH, FOOTER_HEIGHT, COLOR_FOOTER_BG);
+    uint16_t footerBg = uiProjectModeActive() ? COLOR_PROJECT_FOOTER_BG : COLOR_FOOTER_BG;
+    tft.fillRect(0, TFT_HEIGHT - FOOTER_HEIGHT, TFT_WIDTH, FOOTER_HEIGHT, footerBg);
     tft.setTextSize(1);
     tft.setTextColor(COLOR_TEXT);
     tft.setCursor(4, TFT_HEIGHT - FOOTER_HEIGHT + 6);
@@ -236,7 +238,8 @@ void uiDrawStatusBadge() {
     // Clear old badge area (fixed width for consistency)
     int16_t badgeY = (HEADER_HEIGHT - 18) / 2;
     #define STATUS_BADGE_W  46
-    tft.fillRect(TFT_WIDTH - STATUS_BADGE_W - 4, badgeY, STATUS_BADGE_W, 18, COLOR_HEADER_BG);
+    uint16_t headerBg = uiProjectModeActive() ? COLOR_PROJECT_HEADER_BG : COLOR_HEADER_BG;
+    tft.fillRect(TFT_WIDTH - STATUS_BADGE_W - 4, badgeY, STATUS_BADGE_W, 18, headerBg);
     
     int16_t w = strlen(text) * 6 + 8;
     // Center text in fixed badge area
@@ -253,7 +256,8 @@ void uiDrawPsuBadge() {
     int16_t badgeY = (HEADER_HEIGHT - 18) / 2;
     // Position left of status badge (fixed width)
     int16_t badgeX = TFT_WIDTH - STATUS_BADGE_W - PSU_BADGE_W - 10;
-    tft.fillRect(badgeX, badgeY, PSU_BADGE_W, 18, COLOR_HEADER_BG);
+    uint16_t headerBg = uiProjectModeActive() ? COLOR_PROJECT_HEADER_BG : COLOR_HEADER_BG;
+    tft.fillRect(badgeX, badgeY, PSU_BADGE_W, 18, headerBg);
     // Center text in badge
     uiDrawBadge(badgeX + (PSU_BADGE_W - w) / 2, badgeY, text, bgColor, COLOR_TEXT);
 }
@@ -348,7 +352,8 @@ void uiDrawBatteryBadge() {
     int16_t badgeX = TFT_WIDTH - STATUS_BADGE_W - PSU_BADGE_W - BATT_BADGE_W - 16;
     
     // Clear old badge area
-    tft.fillRect(badgeX, badgeY, BATT_BADGE_W, 18, COLOR_HEADER_BG);
+    uint16_t headerBg = uiProjectModeActive() ? COLOR_PROJECT_HEADER_BG : COLOR_HEADER_BG;
+    tft.fillRect(badgeX, badgeY, BATT_BADGE_W, 18, headerBg);
     
     // Center text in badge
     uiDrawBadge(badgeX + (BATT_BADGE_W - w) / 2, badgeY, text, bgColor, COLOR_TEXT);

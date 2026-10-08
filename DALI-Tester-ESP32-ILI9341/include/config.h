@@ -11,8 +11,8 @@
 // =============================================================================
 // Firmware Version
 // =============================================================================
-#define FW_VERSION  "1.3.8"
-#define HW_VERSION  "1.1"
+#define FW_VERSION  "1.4.5"
+#define HW_VERSION  "1.2"
 
 // =============================================================================
 // TFT Display Configuration (ILI9341 2.8" SPI)
@@ -52,7 +52,7 @@
 
 // TX/RX inversion settings (depends on your optocoupler/transistor circuit)
 // For Waveshare Pico-DALI2: Try both polarities if one doesn't work
-#define DALI_TX_INVERT  true    // true = TX HIGH pulls bus LOW (opto-coupler style)
+#define DALI_TX_INVERT  true    // true = TX HIGH pulls bus LOW (matches working reference firmware)
 #define DALI_RX_INVERT  false   // false for Waveshare Pico-DALI2
 
 // =============================================================================
@@ -74,6 +74,8 @@
 #define COLOR_TEXT          0xFFFF  // White text
 #define COLOR_HEADER_BG     0x001F  // Blue header
 #define COLOR_FOOTER_BG     0x0010  // Dark blue footer
+#define COLOR_PROJECT_HEADER_BG 0xA800  // Dark red header in loaded project mode
+#define COLOR_PROJECT_FOOTER_BG 0x5800  // Dark red footer in loaded project mode
 #define COLOR_HIGHLIGHT     0x07E0  // Green highlight
 #define COLOR_SELECTED      0x07FF  // Cyan selection
 #define COLOR_WARNING       0xFBE0  // Orange warning
@@ -123,5 +125,15 @@
 
 // ADC calibration (ESP32 ADC can be non-linear, adjust if needed)
 #define BATTERY_ADC_VREF        3.3     // ADC reference voltage (with 11dB attenuation)
+
+// =============================================================================
+// SD Card Configuration
+// =============================================================================
+// Default setup shares the TFT SPI bus and uses a separate CS pin.
+// Adjust these pins to match your SD card wiring.
+#define SD_CS               21
+#define SD_SPI_SCLK         TFT_SCLK
+#define SD_SPI_MISO         TFT_MISO
+#define SD_SPI_MOSI         TFT_MOSI
 
 #endif // CONFIG_H

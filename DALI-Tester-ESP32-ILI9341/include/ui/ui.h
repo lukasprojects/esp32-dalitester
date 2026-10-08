@@ -26,6 +26,8 @@ enum ScreenId {
     SCREEN_BROADCAST_CTRL,      // Broadcast dimmer control
     SCREEN_LOCATE,
     SCREEN_BUS_MONITOR,
+    SCREEN_SD_BROWSER,
+    SCREEN_WAGO_VIEWER,
     SCREEN_DEVICE_PARAMS,       // Device parameters (groups, scenes, config)
     SCREEN_CONFIRM_POPUP,
     SCREEN_PONG,
@@ -119,6 +121,7 @@ void uiDrawStatusBadge();
 void uiDrawPsuBadge();
 void uiDrawBatteryBadge();
 void uiDrawBadge(int16_t x, int16_t y, const char* text, uint16_t bgColor, uint16_t textColor);
+bool uiProjectModeActive();
 
 // =============================================================================
 // Battery Monitoring

@@ -18,8 +18,8 @@ Ein DALI (Digital Addressable Lighting Interface) Tester mit ESP32 Mikrocontroll
 | **Display** | ILI9341 2.8" SPI TFT (320x240) |
 | **Eingabe** | Rotary Encoder mit Taster |
 | **DALI Library** | qqqDALI (qqqlab) |
-| **Version** | 1.3.8 |
-| **Letztes Update** | 2026-04-12 |
+| **Version** | 1.4.0 |
+| **Letztes Update** | 2026-07-30 |
 
 ## Funktionen
 
@@ -39,6 +39,8 @@ Ein DALI (Digital Addressable Lighting Interface) Tester mit ESP32 Mikrocontroll
 | Send CMD | ✅ | Broadcast/Group/Short + ON/OFF/MIN/MAX |
 | Locate | ✅ | Zyklisches MIN/MAX Blinken |
 | Bus Monitor | ✅ | Frame-Anzeige mit Freeze/Live Mode, DALI-2 Device-Cmd Erkennung |
+| SD Browser | ✅ | Ordnerstruktur der SD-Karte direkt auf dem TFT durchblättern |
+| WAGO Viewer | ✅ | Read-only Anzeige von WAGO-Projekten aus entpackten XML-Dateien |
 
 ### UI Features
 
@@ -70,6 +72,8 @@ Ein DALI (Digital Addressable Lighting Interface) Tester mit ESP32 Mikrocontroll
 | DALI_PSU_EN | GPIO 25 | PSU Enable |
 | **Battery Monitor** | | |
 | BATTERY_ADC | GPIO 35 | Akkuspannung via Spannungsteiler |
+| **SD Card** | | |
+| SD_CS | GPIO 13 | Chip Select der SD-Karte (SPI shared mit TFT) |
 
 ### Konfigurierbare Einstellungen
 
@@ -86,7 +90,16 @@ Alle Pins und Settings können in `include/config.h` angepasst werden:
 // Encoder Richtung und Steps
 #define ENCODER_DIR     -1      // +1 oder -1 für Umkehrung
 #define ENC_STEP_DIV    4       // Steps pro Rastung
+
+// SD-Karte (shared SPI mit TFT)
+#define SD_CS           13
 ```
+
+## SD Browser und WAGO Viewer
+
+- **SD Browser**: zeigt die Ordnerstruktur der eingelegten SD-Karte direkt im Gerät an.
+- **WAGO Viewer**: sucht auf der SD-Karte nach WAGO-Projekten und zeigt die projektierten XML-Dateien read-only an.
+- **Wichtig**: Für die eigentliche Projektansicht muss eine `.wdc2s` Datei am PC entpackt und als XML-Ordner auf die SD-Karte kopiert werden. Gepackte `.wdc2s` Dateien werden erkannt, aber aktuell nur mit einem Hinweis angezeigt.
 
 ## Projektstruktur
 
@@ -223,6 +236,12 @@ Der Bus Monitor nutzt **ausschließlich** `dali.rx()` aus der qqqDALI Library - 
 
 ## Changelog
 
+### Version 1.4.0 (2026-07-30)
+
+- ✅ **SD Browser**: Neuer Menüpunkt zum Durchblättern der SD-Karten-Ordnerstruktur direkt auf dem TFT
+- ✅ **WAGO Viewer**: Neuer Menüpunkt für read-only Anzeige von WAGO-Projekten auf Basis entpackter `solution.xml` / `module_*.xml` Dateien
+- ✅ **SD-Konfiguration**: Neue `SD_CS` / `SD_SPI_*` Defines in `include/config.h` für anpassbare Verdrahtung
+
 ### Version 1.3.8 (2026-04-12)
 
 - ✅ **Easter Egg**: Pong-Spiel! Im Hauptmenü Encoder 8 Sekunden gedrückt halten. Wand links, Paddle rechts per Encoder. Long Press zum Verlassen.
@@ -329,6 +348,8 @@ Der Bus Monitor nutzt **ausschließlich** `dali.rx()` aus der qqqDALI Library - 
 
 3. **Display Refresh**: Bei schnellen Änderungen kann leichtes Flackern auftreten.
 
+4. **WAGO Viewer**: Die Projektanzeige ist aktuell read-only und nutzt eine heuristische XML-Auswertung. Für volle Bearbeitung/Speicherung fehlt noch der spätere Import/Export-Schritt.
+
 ## Assumptions (Designentscheidungen)
 
 1. **Timer**: ESP32 Hardware Timer 0 mit 80 Prescaler (1µs Auflösung) für DALI Timing (104µs Interrupt)
@@ -347,4 +368,4 @@ Dieses Projekt verwendet die qqqDALI Library von qqqlab (MIT License).
 
 ---
 
-*Dokumentation zuletzt aktualisiert: 2026-03-20*
+*Dokumentation zuletzt aktualisiert: 2026-07-30*

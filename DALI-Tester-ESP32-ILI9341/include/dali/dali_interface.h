@@ -213,6 +213,10 @@ uint8_t daliCountUnaddressed();  // Count unaddressed devices on bus (without as
 // DALI-2 Control Device queries (S=0 addressing)
 int16_t daliQueryDeviceStatus(uint8_t addr);
 int16_t daliQueryDeviceDeviceType(uint8_t addr);
+int16_t daliQueryDeviceCapabilities(uint8_t addr);
+int16_t daliQueryDeviceNumberOfInstances(uint8_t addr);
+int16_t daliQueryDeviceInstanceType(uint8_t addr, uint8_t instance);
+int16_t daliQueryDeviceInstanceEnabled(uint8_t addr, uint8_t instance);
 
 // Status
 DaliStatus daliGetStatus();
